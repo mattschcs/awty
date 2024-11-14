@@ -1,16 +1,17 @@
 package edu.uw.ischool.chuns4.awty
 
-
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.telephony.SmsManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
-import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
@@ -23,21 +24,15 @@ class MainActivity : AppCompatActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
     private var intervalMinutes = 0
+    private val PERMISSION_REQUEST_CODE = 1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContentView(R.layout.activity_main)
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
         messageEditText = findViewById(R.id.messageEditText)
         phoneNumberEditText = findViewById(R.id.phoneNumberEditText)
         intervalEditText = findViewById(R.id.intervalEditText)
         startStopButton = findViewById(R.id.startStopButton)
-
         startStopButton.setOnClickListener {
             if (isRunning) {
                 stopMessaging()
@@ -51,7 +46,6 @@ class MainActivity : AppCompatActivity() {
         val message = messageEditText.text.toString()
         val phoneNumber = phoneNumberEditText.text.toString()
         intervalMinutes = intervalEditText.text.toString().toIntOrNull() ?: 0
-
         if (message.isBlank() || phoneNumber.isBlank() || intervalMinutes <= 0) {
             if (message.isBlank() && phoneNumber.isBlank() && intervalMinutes <= 0) {
                 Toast.makeText(this, "Please enter all valid values.", Toast.LENGTH_SHORT).show()
@@ -70,7 +64,10 @@ class MainActivity : AppCompatActivity() {
             }
             return
         }
-
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.SEND_SMS), PERMISSION_REQUEST_CODE)
+            return
+        }
         isRunning = true
         startStopButton.text = "Stop"
 
@@ -78,6 +75,7 @@ class MainActivity : AppCompatActivity() {
             while (isRunning) {
                 handler.post {
                     Toast.makeText(this, "$phoneNumber: $message", Toast.LENGTH_SHORT).show()
+                    sendSMS(phoneNumber, message)
                 }
                 Thread.sleep(intervalMinutes * 60 * 1000L)
             }
@@ -89,10 +87,31 @@ class MainActivity : AppCompatActivity() {
         startStopButton.text = "Start"
     }
 
+    private fun sendSMS(phoneNumber: String, message: String) {
+        try {
+            val smsManager = SmsManager.getDefault()
+            smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+        } catch (e: Exception) {
+            handler.post {
+                Toast.makeText(this, "Failed to send SMS: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startMessaging()
+            } else {
+                Toast.makeText(this, "SMS permission denied.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
         executor.shutdown()
     }
-
 }
